@@ -1,0 +1,15 @@
+fastapi>=0.109.0
+uvicorn>=0.24.0
+python-multipart
+pydantic>=2.9
+langgraph
+langchain
+ollama>=0.6.1
+pillow
+python-pptx
+aiofiles
+pypdf>=3.0.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+sqlalchemy>=2.0
+asyncpg

@@ -1,0 +1,120 @@
+{
+  "shares": {
+    "t2jICIQf5fz2": {
+      "id": "t2jICIQf5fz2",
+      "title": "Amazon Web Service",
+      "slides": [
+        {
+          "slide_number": 1,
+          "title": "What is AWS?",
+          "description": "Amazon Web Services (AWS) is a comprehensive cloud computing platform that provides on-demand access to a wide range of IT resources, including infrastructure, databases, analytics, machine learning, and more. Launched in 2002, AWS has become one of the largest and most popular cloud providers globally.",
+          "key_points": [
+            "Cloud-based infrastructure as a service (IaaS)",
+            "Platform as a service (PaaS) for development",
+            "Software as a service (SaaS) for deployment"
+          ]
+        },
+        {
+          "slide_number": 2,
+          "title": "AWS Services Overview",
+          "description": "AWS offers more than 175 services and features that cater to various business needs. Some of the key services include compute, storage, database, analytics, machine learning, security, identity, and application services.",
+          "key_points": [
+            "Compute: EC2, Lambda, Elastic Beanstalk",
+            "Storage: S3, EBS, Elastic File System (EFS)",
+            "Database: RDS, DynamoDB, DocumentDB"
+          ]
+        },
+        {
+          "slide_number": 3,
+          "title": "AWS Compute Services",
+          "description": "AWS provides a range of compute services that enable you to run and manage applications in the cloud. Some of these services include EC2 for virtual machines, Lambda for serverless computing, and Elastic Beanstalk for managed platforms.",
+          "key_points": [
+            "EC2: Virtual Machines",
+            "Lambda: Serverless Computing",
+            "Elastic Beanstalk: Managed Platforms"
+          ],
+          "image_path": "/Users/vedantatri/Downloads/Presenton AI/backend/image_cache/unsplash_wKeZstqxKTQ.jpg"
+        },
+        {
+          "slide_number": 4,
+          "title": "AWS Storage Services",
+          "description": "AWS offers a range of storage services that enable you to store and manage data in the cloud. Some of these services include S3 for object storage, EBS for block-level storage, and Elastic File System (EFS) for file-level storage.",
+          "key_points": [
+            "S3: Object Storage",
+            "EBS: Block-Level Storage",
+            "Elastic File System (EFS): File-Level Storage"
+          ]
+        },
+        {
+          "slide_number": 5,
+          "title": "AWS Database Services",
+          "description": "AWS provides a range of database services that enable you to design and deploy databases in the cloud. Some of these services include RDS for relational databases, DynamoDB for NoSQL databases, and DocumentDB for MongoDB.",
+          "key_points": [
+            "RDS: Relational Databases",
+            "DynamoDB: NoSQL Databases",
+            "DocumentDB: MongoDB"
+          ]
+        },
+        {
+          "slide_number": 6,
+          "title": "AWS Analytics Services",
+          "description": "AWS offers a range of analytics services that enable you to analyze and visualize data in the cloud. Some of these services include Amazon Redshift for data warehousing, Amazon QuickSight for fast, cloud-powered business intelligence",
+          "key_points": [
+            "Amazon Redshift: Data Warehousing",
+            "Amazon QuickSight: Fast, Cloud-Powered Business Intelligence"
+          ],
+          "image_path": "/Users/vedantatri/Downloads/Presenton AI/backend/image_cache/unsplash_J0eqDgSQDYg.jpg"
+        },
+        {
+          "slide_number": 7,
+          "title": "AWS Security and Identity Services",
+          "description": "AWS provides a range of security and identity services that enable you to secure and manage access to your AWS resources. Some of these services include IAM for identity and access management, Cognito for user pools and federation",
+          "key_points": [
+            "IAM: Identity and Access Management",
+            "Cognito: User Pools and Federation"
+          ]
+        },
+        {
+          "slide_number": 8,
+          "title": "Conclusion",
+          "description": "In conclusion, Amazon Web Services (AWS) is a comprehensive cloud computing platform that provides on-demand access to a wide range of IT resources. AWS offers a range of services that cater to various business needs, from compute and storage to database and analytics.",
+          "key_points": [
+            "Comprehensive cloud computing platform",
+            "On-demand access to IT resources",
+            "Wide range of services for various business needs"
+          ]
+        }
+      ],
+      "pptx_path": "presentations/presenton_20260526_110608.pptx",
+      "theme": "modern",
+      "language": "english",
+      "presentation_id": "pres_20260526_110609",
+      "created_at": "2026-05-26T11:18:34.739081",
+      "analytics": {
+        "views": 0,
+        "unique_viewers": 0,
+        "viewer_ids": [],
+        "downloads": {
+          "pptx": 0,
+          "pdf": 0,
+          "total": 0
+        },
+        "slide_views": {
+          "7": 1
+        },
+        "events": [
+          {
+            "type": "slide_view",
+            "at": "2026-05-26T11:18:34.791906",
+            "metadata": {
+              "slide_index": 7,
+              "slide_title": "Conclusion"
+            },
+            "viewer_id": "v_1779774514779_flsewxgxe"
+          }
+        ]
+      }
+    }
+  },
+  "updated_at": "2026-05-26T11:18:34.791933"
+}
