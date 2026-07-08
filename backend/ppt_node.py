@@ -117,6 +117,12 @@ def generate_ppt_node(state: PresentationState) -> PresentationState:
         
         ppt.add_title_slide()
         
+        # Add agenda slide with topics from slides
+        if slides and len(slides) > 0:
+            agenda_topics = [slide.get('title', f'Topic {i+1}') for i, slide in enumerate(slides)]
+            ppt.add_agenda_slide(agenda_topics)
+            print(f"DEBUG: Added agenda slide with {len(agenda_topics)} topics")
+        
         print(f"\nDEBUG: === PPT NODE STATE CHECK ===")
         print(f"DEBUG: state object id: {id(state)}")
         print(f"DEBUG: state['image_urls'] type: {type(state.get('image_urls'))}")
@@ -134,7 +140,7 @@ def generate_ppt_node(state: PresentationState) -> PresentationState:
             print(f"DEBUG:   Exists: {Path(img_path).exists() if img_path else 'None'}")
         
         if len(slides) > 0 and len(image_paths_available) > 0:
-            total_actual_slides = len(slides) + 2 
+            total_actual_slides = len(slides) + 3  # Title + Agenda + content slides (+ comparison + summary handled separately)
             image_positions = calculate_image_positions(total_actual_slides)
             print(f"DEBUG: Recalculated image positions for {total_actual_slides} total slides: {image_positions}")
             
@@ -161,7 +167,7 @@ def generate_ppt_node(state: PresentationState) -> PresentationState:
             key_points = slide.get('key_points', [])
             description = slide.get('description', '')
             slide_absolute_index = i + 1
-            page_num = i + 2  # +2 because slide 1 is title slide
+            page_num = i + 3  # +3 because slides 1-2 are title + agenda
 
             print(f"DEBUG: Processing slide {i}: absolute_index={slide_absolute_index}, title='{slide_title}'")
 
@@ -183,6 +189,10 @@ def generate_ppt_node(state: PresentationState) -> PresentationState:
                 ppt.add_pie_chart_slide(slide_title, key_points, description, page_num=page_num)
             elif layout_type == "bar_chart":
                 ppt.add_bar_chart_slide(slide_title, key_points, description, page_num=page_num)
+            elif layout_type == "line_chart":
+                ppt.add_line_chart_slide(slide_title, key_points, description, page_num=page_num)
+            elif layout_type == "area_chart":
+                ppt.add_area_chart_slide(slide_title, key_points, description, page_num=page_num)
             else:
                 # ── 1-2 sentence intro paragraph ──────────────────────────────
                 bullets = []

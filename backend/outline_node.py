@@ -68,7 +68,7 @@ REQUIREMENTS:
             model="llama3",
             prompt=prompt,
             stream=False,
-            options={"num_predict": 1400}  # Enough for 10-15 slides; was 2048 (too slow)
+            options={"num_predict": 2048}  # 2048 needed for longer topics with 15 slides
         )
         
         response_text = response['response'].strip()

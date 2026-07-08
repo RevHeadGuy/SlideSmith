@@ -11,9 +11,89 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import MSO_AUTO_SIZE
 from pptx.util import Inches
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 import re as _re
+
+def format_large_number(num: float) -> str:
+    """
+    Format large numbers with abbreviations (M, B, T, K).
+    Examples: 2500000 -> "2.5M", 1200000000 -> "1.2B"
+    """
+    if num >= 1_000_000_000:
+        return f"{num / 1_000_000_000:.1f}B".rstrip('0').rstrip('.')
+    elif num >= 1_000_000:
+        return f"{num / 1_000_000:.1f}M".rstrip('0').rstrip('.')
+    elif num >= 1_000:
+        return f"{num / 1_000:.1f}K".rstrip('0').rstrip('.')
+    else:
+        return f"{num:.0f}"
+
+def extract_time_series_data(key_points: List[str], description: str = "") -> Tuple[List[str], List[float]]:
+    """
+    Extract time series data (trends) from key_points.
+    Pattern: "Year/Quarter/Month: value" or "value in Year/Quarter"
+    Returns (labels, values) tuples
+    """
+    results = []
+    
+    # Pattern: "2020: 100", "Q1 2023: 250", "Jan 2024: 45"
+    time_pattern = _re.compile(
+        r'((?:20|21)\d{2}|Q[1-4]|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[\s:]?(?:20|21)?(\d{2})?[\s:\-–]*(\d+(?:\.\d+)?)\s*(million|billion|thousand|k|m|b)?',
+        _re.IGNORECASE
+    )
+    
+    for pt in key_points[:10]:
+        for match in time_pattern.finditer(pt):
+            label = match.group(1)
+            value = float(match.group(3))
+            multiplier = match.group(4)
+            
+            if multiplier:
+                mult = multiplier.lower()
+                if mult in ('billion', 'b'): value *= 1_000_000_000
+                elif mult in ('million', 'm'): value *= 1_000_000
+                elif mult in ('thousand', 'k'): value *= 1_000
+            
+            results.append((label, value))
+    
+    if results:
+        labels = [r[0] for r in results]
+        values = [r[1] for r in results]
+        return labels, values
+    return [], []
+
+def extract_comparison_series(key_points: List[str], description: str = "") -> Dict[str, List[Tuple[str, float]]]:
+    """
+    Extract multiple series for comparison charts.
+    Pattern: "Category A: Q1=100 Q2=150 Q3=200" or similar structures
+    Returns dict like {"Series 1": [("Q1", 100), ("Q2", 150)], ...}
+    """
+    series_dict = {}
+    all_text = " ".join(key_points) + " " + description
+    
+    # Look for patterns like "Product A: Jan 50, Feb 75, Mar 120"
+    series_pattern = _re.compile(
+        r'([A-Za-z][A-Za-z0-9\s&/\-]{2,20}?)[\s:\-]+((?:[A-Za-z]{3}\s+\d+[,;]?\s*)+)',
+        _re.IGNORECASE
+    )
+    
+    for match in series_pattern.finditer(all_text):
+        series_name = match.group(1).strip()
+        values_text = match.group(2)
+        
+        # Parse individual values
+        value_pattern = _re.compile(r'([A-Za-z]{3})\s+(\d+(?:\.\d+)?)')
+        values = []
+        for val_match in value_pattern.finditer(values_text):
+            label = val_match.group(1)
+            value = float(val_match.group(2))
+            values.append((label, value))
+        
+        if len(values) >= 2:
+            series_dict[series_name] = values
+    
+    return series_dict if series_dict else {}
 
 def has_numeric_content(slide: Dict) -> bool:
     """Return True if slide key_points contain numbers/percentages/years."""
@@ -112,22 +192,44 @@ def extract_bar_data(key_points: List[str], description: str = ""):
 
 def detect_chart_type(slide: Dict) -> str:
     """
-    Returns 'pie', 'bar', or '' based on key_points AND description content.
+    Returns 'pie', 'bar', 'line', 'area', 'scatter', or '' based on content.
     Pie: 2+ percentage values present.
-    Bar: 2+ comparable numeric values (non-percentage) present.
+    Bar: 2+ comparable numeric values (non-percentage).
+    Line/Area: Time series data or trend keywords present.
+    Scatter: Multiple categories with coordinate pairs.
     """
     key_points  = slide.get('key_points', [])
     description = slide.get('description', '')
+    title = slide.get('title', '').lower()
+    all_text = (title + " " + description).lower()
+    
     if len(extract_pie_data(key_points, description)) >= 2:
         return 'pie'
+    
+    # Check for time series/trend keywords
+    trend_keywords = ['trend', 'growth', 'over time', 'year', 'quarter', 'month', 'forecast', 'projection', 'historical', 'timeline']
+    if any(kw in all_text for kw in trend_keywords):
+        time_labels, time_values = extract_time_series_data(key_points, description)
+        if len(time_labels) >= 3:
+            if any(kw in all_text for kw in ['forecast', 'projection', 'future']):
+                return 'area'  # Area for composition/accumulation
+            return 'line'  # Line for trends over time
+    
+    # Check for multi-series comparison
+    series_data = extract_comparison_series(key_points, description)
+    if len(series_data) >= 2:
+        return 'bar'  # Multi-series bar chart
+    
     if len(extract_bar_data(key_points, description)) >= 2:
         return 'bar'
+    
     return ''
+
 
 def detect_slide_layout(slide: Dict, is_last_slide: bool = False, has_image: bool = False) -> str:
     """
     Intelligently detect the best layout for a slide based on its content.
-    Returns one of: standard, full_image, large_key_points, stats, timeline, pie_chart, bar_chart
+    Returns one of: standard, full_image, large_key_points, stats, timeline, pie_chart, bar_chart, line_chart, area_chart
     """
     title      = slide.get('title', '').lower()
     description = slide.get('description', '').lower()
@@ -145,6 +247,10 @@ def detect_slide_layout(slide: Dict, is_last_slide: bool = False, has_image: boo
             return 'pie_chart'
         if chart == 'bar':
             return 'bar_chart'
+        if chart == 'line':
+            return 'line_chart'
+        if chart == 'area':
+            return 'area_chart'
 
     # Priority 1b: Stats layout for numeric content (no image needed)
     if not has_image and has_numeric_content(slide):
@@ -424,11 +530,10 @@ class PresentationGenerator:
                 # Render para lines as plain text
                 if para_lines:
                     para_text = " ".join(para_lines)
-                    # Estimate wrapped line count at Pt(16) in 8.4 inch wide box
-                    # ~95 chars per line at this size/width
-                    chars_per_line = 95
+                    # More conservative estimate: ~70 chars per line at Pt(16) / 8.4 inch width
+                    chars_per_line = 70
                     estimated_lines = max(1, -(-len(para_text) // chars_per_line))  # ceiling div
-                    para_height = max(0.55, estimated_lines * 0.30 + 0.15)
+                    para_height = max(0.50, estimated_lines * 0.28 + 0.10)
 
                     pb = slide.shapes.add_textbox(Inches(0.8), Inches(y_cursor), Inches(8.4), Inches(para_height))
                     ptf = pb.text_frame
@@ -438,12 +543,16 @@ class PresentationGenerator:
                     pp.font.size = Pt(16)
                     pp.font.color.rgb = self.colors["text_primary"]
                     pp.line_spacing = 1.3
-                    y_cursor += para_height + 0.30  # gap between para and first bullet
+                    y_cursor += para_height + 0.22  # tighter gap so bullets have more room
 
                 # Render each bullet with an icon circle
+                # Footer is at y=7.15, leave 0.5 inch margin → max bullet bottom = 6.65
+                MAX_Y = 6.60
                 for item in bullet_lines:
+                    if y_cursor >= MAX_Y:
+                        break  # don't draw bullets that would overlap the footer
                     self._add_bullet_row(slide, item, y_cursor)
-                    y_cursor += 0.82
+                    y_cursor += 0.76
         else:
             content_box = slide.shapes.add_textbox(Inches(1), Inches(1.6), Inches(8), Inches(5.0))
             text_frame = content_box.text_frame
@@ -487,7 +596,7 @@ class PresentationGenerator:
         circle.line.fill.background()
 
         # Text
-        tb = slide.shapes.add_textbox(Inches(TEXT_X), Inches(y_top), Inches(TEXT_W), Inches(0.95))
+        tb = slide.shapes.add_textbox(Inches(TEXT_X), Inches(y_top), Inches(TEXT_W), Inches(0.72))
         tf = tb.text_frame
         tf.word_wrap = True
         p = tf.paragraphs[0]
@@ -495,7 +604,7 @@ class PresentationGenerator:
         p.text = text.lstrip("• ").strip()
         p.font.size = Pt(16)
         p.font.color.rgb = self.colors["text_primary"]
-        p.line_spacing = 1.3
+        p.line_spacing = 1.2
     
     def add_full_image_slide(self, title: str, image_path: str, description: str = ""):
         """Add full-width image slide with optional text overlay"""
@@ -1535,17 +1644,27 @@ class PresentationGenerator:
             chart = chart_shape.chart
             chart.has_legend = False
 
-            # Value axis — no gridlines clutter
+            # Value axis styling — light gridlines for better readability
             val_axis = chart.value_axis
             val_axis.has_major_gridlines = True
             val_axis.major_gridlines.format.line.color.rgb = self.colors["border"]
+            try:
+                # Format large numbers on axis
+                val_axis.tick_labels.font.size = Pt(10)
+                val_axis.tick_labels.font.color.rgb = self.colors["text_secondary"]
+            except Exception:
+                pass
 
-            # Category axis font
+            # Category axis font and styling
             cat_axis = chart.category_axis
-            cat_axis.tick_labels.font.size = Pt(11)
-            cat_axis.tick_labels.font.color.rgb = self.colors["text_primary"]
+            try:
+                cat_axis.tick_labels.font.size = Pt(11)
+                cat_axis.tick_labels.font.bold = True
+                cat_axis.tick_labels.font.color.rgb = self.colors["text_primary"]
+            except Exception:
+                pass
 
-            # Data labels
+            # Data labels with better formatting
             plot = chart.plots[0]
             try:
                 if hasattr(plot, 'has_data_labels'):
@@ -1554,6 +1673,7 @@ class PresentationGenerator:
                     dls = plot.data_labels
                     try:
                         dls.show_value = True
+                        dls.show_legend_key = False
                     except Exception:
                         pass
                     try:
@@ -1565,13 +1685,395 @@ class PresentationGenerator:
             except Exception:
                 pass
 
-            # Color all bars with primary color
-            for point in plot.series[0].points:
+            # Color all bars with primary color and subtle shading
+            for idx, point in enumerate(plot.series[0].points):
                 point.format.fill.solid()
-                point.format.fill.fore_color.rgb = self.colors["primary"]
+                # Alternate shades for visual interest
+                if idx % 2 == 0:
+                    point.format.fill.fore_color.rgb = self.colors["primary"]
+                else:
+                    point.format.fill.fore_color.rgb = self.colors["primary_light"]
 
         if page_num:
             self._add_footer(slide, page_num)
+
+    def add_line_chart_slide(self, title: str, key_points: List[str], description: str = "", page_num: int = 0):
+        """
+        Add line chart slide for trend visualization.
+        Shows data progression over time with formatted axis labels.
+        """
+        from pptx.chart.data import ChartData
+        from pptx.enum.chart import XL_CHART_TYPE
+
+        slide = self.prs.slides.add_slide(self.prs.slide_layouts[6])
+        bg = slide.background.fill
+        bg.solid()
+        bg.fore_color.rgb = self.colors["white"]
+
+        # Header accent line
+        bar = slide.shapes.add_shape(1, Inches(0), Inches(0.3), Inches(10), Inches(0.08))
+        bar.fill.solid()
+        bar.fill.fore_color.rgb = self.colors["accent"]
+        bar.line.fill.background()
+
+        # Title
+        tb = slide.shapes.add_textbox(Inches(0.5), Inches(0.4), Inches(9), Inches(0.75))
+        tf = tb.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.text = title
+        p.font.size = Pt(28)
+        p.font.bold = True
+        p.font.color.rgb = self.colors["primary"]
+
+        # Description
+        y_cursor = 1.40
+        if description:
+            sentences = [s.strip() for s in description.replace('!', '.').replace('?', '.').split('.') if s.strip()]
+            short_desc = '. '.join(sentences[:2])
+            if short_desc and not short_desc.endswith('.'):
+                short_desc += '.'
+            pb = slide.shapes.add_textbox(Inches(0.8), Inches(y_cursor), Inches(8.4), Inches(0.55))
+            ptf = pb.text_frame
+            ptf.word_wrap = True
+            pp = ptf.paragraphs[0]
+            pp.text = short_desc
+            pp.font.size = Pt(13)
+            pp.font.color.rgb = self._body_color()
+            pp.line_spacing = 1.3
+            y_cursor += 0.75
+
+        # Extract time series data
+        time_labels, time_values = extract_time_series_data(key_points, description)
+
+        if len(time_labels) >= 3:
+            cd = ChartData()
+            cd.categories = time_labels
+            cd.add_series('Trend', time_values)
+
+            chart_top = y_cursor
+            chart_h = 7.0 - chart_top - 0.45
+            chart_shape = slide.shapes.add_chart(
+                XL_CHART_TYPE.LINE,
+                Inches(0.6), Inches(chart_top),
+                Inches(8.8), Inches(chart_h),
+                cd
+            )
+            chart = chart_shape.chart
+            chart.has_legend = False
+
+            # Styling
+            plot = chart.plots[0]
+            try:
+                if hasattr(plot, 'has_data_labels'):
+                    plot.has_data_labels = True
+            except Exception:
+                pass
+
+            # Color line
+            try:
+                plot.series[0].format.line.color.rgb = self.colors["primary"]
+                plot.series[0].format.line.width = Pt(2.5)
+            except Exception:
+                pass
+
+        if page_num:
+            self._add_footer(slide, page_num)
+
+    def add_area_chart_slide(self, title: str, key_points: List[str], description: str = "", page_num: int = 0):
+        """
+        Add stacked area chart for composition or accumulation visualization.
+        """
+        from pptx.chart.data import ChartData
+        from pptx.enum.chart import XL_CHART_TYPE
+
+        slide = self.prs.slides.add_slide(self.prs.slide_layouts[6])
+        bg = slide.background.fill
+        bg.solid()
+        bg.fore_color.rgb = self.colors["white"]
+
+        # Header accent line
+        bar = slide.shapes.add_shape(1, Inches(0), Inches(0.3), Inches(10), Inches(0.08))
+        bar.fill.solid()
+        bar.fill.fore_color.rgb = self.colors["accent"]
+        bar.line.fill.background()
+
+        # Title
+        tb = slide.shapes.add_textbox(Inches(0.5), Inches(0.4), Inches(9), Inches(0.75))
+        tf = tb.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.text = title
+        p.font.size = Pt(28)
+        p.font.bold = True
+        p.font.color.rgb = self.colors["primary"]
+
+        # Description
+        y_cursor = 1.40
+        if description:
+            sentences = [s.strip() for s in description.replace('!', '.').replace('?', '.').split('.') if s.strip()]
+            short_desc = '. '.join(sentences[:2])
+            if short_desc and not short_desc.endswith('.'):
+                short_desc += '.'
+            pb = slide.shapes.add_textbox(Inches(0.8), Inches(y_cursor), Inches(8.4), Inches(0.55))
+            ptf = pb.text_frame
+            ptf.word_wrap = True
+            pp = ptf.paragraphs[0]
+            pp.text = short_desc
+            pp.font.size = Pt(13)
+            pp.font.color.rgb = self._body_color()
+            pp.line_spacing = 1.3
+            y_cursor += 0.75
+
+        # Try to extract multi-series data
+        series_data = extract_comparison_series(key_points, description)
+        time_labels, time_values = extract_time_series_data(key_points, description)
+
+        if series_data:
+            # Multi-series area chart
+            cd = ChartData()
+            all_categories = []
+            for series_values in series_data.values():
+                all_categories.extend([label for label, _ in series_values])
+            all_categories = sorted(list(set(all_categories)))
+            cd.categories = all_categories
+
+            for series_name, series_values in list(series_data.items())[:4]:
+                values = []
+                for cat in all_categories:
+                    val = next((v for l, v in series_values if l == cat), 0)
+                    values.append(val)
+                cd.add_series(series_name, values)
+
+            chart_top = y_cursor
+            chart_h = 7.0 - chart_top - 0.45
+            try:
+                chart_shape = slide.shapes.add_chart(
+                    XL_CHART_TYPE.AREA_STACKED,
+                    Inches(0.6), Inches(chart_top),
+                    Inches(8.8), Inches(chart_h),
+                    cd
+                )
+                chart = chart_shape.chart
+
+                # Apply theme colors
+                slice_colors = [
+                    self.colors["primary"],
+                    self.colors["accent"],
+                    self.colors["primary_light"],
+                    RGBColor(16, 185, 129),
+                ]
+                for si, point in enumerate(chart.plots[0].series):
+                    try:
+                        point.format.fill.solid()
+                        point.format.fill.fore_color.rgb = slice_colors[si % len(slice_colors)]
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        elif len(time_labels) >= 3:
+            # Fallback to simple area chart
+            cd = ChartData()
+            cd.categories = time_labels
+            cd.add_series('Data', time_values)
+
+            chart_top = y_cursor
+            chart_h = 7.0 - chart_top - 0.45
+            try:
+                chart_shape = slide.shapes.add_chart(
+                    XL_CHART_TYPE.AREA_STACKED,
+                    Inches(0.6), Inches(chart_top),
+                    Inches(8.8), Inches(chart_h),
+                    cd
+                )
+            except Exception:
+                pass
+
+        if page_num:
+            self._add_footer(slide, page_num)
+
+    def add_agenda_slide(self, topics: List[str]):
+        """
+        Add an agenda/overview slide after the title slide.
+        Topics are displayed as numbered items in a visually appealing layout.
+        """
+        # Handle empty topics list
+        if not topics or len(topics) == 0:
+            return
+        
+        # Clean up topics (remove empty strings)
+        topics = [t.strip() for t in topics if t and str(t).strip()]
+        if len(topics) == 0:
+            return
+        
+        slide = self.prs.slides.add_slide(self.prs.slide_layouts[6])
+        
+        # Background
+        bg = slide.background.fill
+        bg.solid()
+        bg.fore_color.rgb = self.colors["white"] if self.theme != "dark" else self.colors["bg_light"]
+        
+        # Header accent line
+        header_shape = slide.shapes.add_shape(1, Inches(0), Inches(0.3), Inches(10), Inches(0.08))
+        header_shape.fill.solid()
+        header_shape.fill.fore_color.rgb = self.colors["accent"]
+        header_shape.line.color.rgb = self.colors["accent"]
+        
+        # Title
+        title_box = slide.shapes.add_textbox(Inches(0.5), Inches(0.4), Inches(9), Inches(0.8))
+        title_frame = title_box.text_frame
+        title_frame.word_wrap = True
+        p = title_frame.paragraphs[0]
+        p.text = "Agenda"
+        p.font.size = Pt(32)
+        p.font.bold = True
+        p.font.color.rgb = self.colors["primary"]
+        
+        # Subtitle
+        sub_box = slide.shapes.add_textbox(Inches(0.5), Inches(1.1), Inches(9), Inches(0.35))
+        sub_frame = sub_box.text_frame
+        sub_p = sub_frame.paragraphs[0]
+        sub_p.text = "Here's what we'll cover"
+        sub_p.font.size = Pt(14)
+        sub_p.font.color.rgb = self.colors["text_secondary"]
+        sub_p.font.italic = True
+        
+        # Determine layout based on number of topics
+        num_topics = min(len(topics), 8)
+        
+        if num_topics <= 4:
+            # Single column layout — large agenda items
+            self._add_agenda_single_column(slide, topics[:num_topics])
+        elif num_topics <= 6:
+            # Two-column layout
+            self._add_agenda_two_column(slide, topics[:num_topics])
+        else:
+            # Two-column compact layout
+            self._add_agenda_two_column_compact(slide, topics[:num_topics])
+
+    
+    def _add_agenda_single_column(self, slide, topics: List[str]):
+        """Render agenda items in single column (large format)."""
+        y_start = 1.8
+        item_height = 1.0
+        
+        for idx, topic in enumerate(topics):
+            y = y_start + idx * item_height
+            
+            # Numbered circle background
+            circle_x = 0.6
+            circle_y = y + 0.15
+            circle = slide.shapes.add_shape(9, Inches(circle_x), Inches(circle_y), Inches(0.4), Inches(0.4))
+            circle.fill.solid()
+            circle.fill.fore_color.rgb = self.colors["primary"] if idx % 2 == 0 else self.colors["accent"]
+            circle.line.fill.background()
+            
+            # Number inside circle
+            ctf = circle.text_frame
+            ctf.vertical_anchor = MSO_ANCHOR.MIDDLE
+            cp = ctf.paragraphs[0]
+            cp.text = str(idx + 1)
+            cp.font.size = Pt(18)
+            cp.font.bold = True
+            cp.font.color.rgb = self.colors["white"]
+            cp.alignment = PP_ALIGN.CENTER
+            
+            # Topic text
+            text_box = slide.shapes.add_textbox(Inches(1.2), Inches(y), Inches(8.3), Inches(0.7))
+            text_frame = text_box.text_frame
+            text_frame.word_wrap = True
+            text_p = text_frame.paragraphs[0]
+            text_p.text = topic
+            text_p.font.size = Pt(18)
+            text_p.font.bold = True
+            text_p.font.color.rgb = self.colors["primary"]
+            text_p.line_spacing = 1.2
+    
+    def _add_agenda_two_column(self, slide, topics: List[str]):
+        """Render agenda items in two columns."""
+        mid = (len(topics) + 1) // 2
+        left_topics = topics[:mid]
+        right_topics = topics[mid:]
+        
+        col_positions = [0.6, 5.3]
+        y_start = 1.8
+        item_height = 0.9
+        
+        for col_idx, col_topics in enumerate([left_topics, right_topics]):
+            col_x = col_positions[col_idx]
+            
+            for idx, topic in enumerate(col_topics):
+                item_idx = idx + (mid if col_idx == 1 else 0)
+                y = y_start + idx * item_height
+                
+                # Numbered circle
+                circle = slide.shapes.add_shape(9, Inches(col_x), Inches(y + 0.10), Inches(0.35), Inches(0.35))
+                circle.fill.solid()
+                circle.fill.fore_color.rgb = self.colors["primary"] if item_idx % 2 == 0 else self.colors["accent"]
+                circle.line.fill.background()
+                
+                ctf = circle.text_frame
+                ctf.vertical_anchor = MSO_ANCHOR.MIDDLE
+                cp = ctf.paragraphs[0]
+                cp.text = str(item_idx + 1)
+                cp.font.size = Pt(14)
+                cp.font.bold = True
+                cp.font.color.rgb = self.colors["white"]
+                cp.alignment = PP_ALIGN.CENTER
+                
+                # Topic text
+                text_box = slide.shapes.add_textbox(Inches(col_x + 0.50), Inches(y), Inches(4.2), Inches(0.65))
+                text_frame = text_box.text_frame
+                text_frame.word_wrap = True
+                text_p = text_frame.paragraphs[0]
+                text_p.text = topic
+                text_p.font.size = Pt(15)
+                text_p.font.bold = True
+                text_p.font.color.rgb = self.colors["primary"]
+                text_p.line_spacing = 1.1
+    
+    def _add_agenda_two_column_compact(self, slide, topics: List[str]):
+        """Render agenda items in two columns, compact format."""
+        mid = (len(topics) + 1) // 2
+        left_topics = topics[:mid]
+        right_topics = topics[mid:]
+        
+        col_positions = [0.6, 5.3]
+        y_start = 1.8
+        item_height = 0.75
+        
+        for col_idx, col_topics in enumerate([left_topics, right_topics]):
+            col_x = col_positions[col_idx]
+            
+            for idx, topic in enumerate(col_topics):
+                item_idx = idx + (mid if col_idx == 1 else 0)
+                y = y_start + idx * item_height
+                
+                # Smaller numbered circle
+                circle = slide.shapes.add_shape(9, Inches(col_x), Inches(y + 0.08), Inches(0.30), Inches(0.30))
+                circle.fill.solid()
+                circle.fill.fore_color.rgb = self.colors["primary"] if item_idx % 2 == 0 else self.colors["accent"]
+                circle.line.fill.background()
+                
+                ctf = circle.text_frame
+                ctf.vertical_anchor = MSO_ANCHOR.MIDDLE
+                cp = ctf.paragraphs[0]
+                cp.text = str(item_idx + 1)
+                cp.font.size = Pt(11)
+                cp.font.bold = True
+                cp.font.color.rgb = self.colors["white"]
+                cp.alignment = PP_ALIGN.CENTER
+                
+                # Topic text — smaller
+                text_box = slide.shapes.add_textbox(Inches(col_x + 0.45), Inches(y), Inches(4.3), Inches(0.55))
+                text_frame = text_box.text_frame
+                text_frame.word_wrap = True
+                text_p = text_frame.paragraphs[0]
+                text_p.text = topic
+                text_p.font.size = Pt(13)
+                text_p.font.bold = True
+                text_p.font.color.rgb = self.colors["primary"]
+                text_p.line_spacing = 1.1
 
     def save(self, filename: str = "presentation.pptx"):
 

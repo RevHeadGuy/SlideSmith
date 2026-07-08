@@ -7,6 +7,7 @@ from typing import TypedDict, Optional
 import os
 from pathlib import Path
 from datetime import datetime
+import asyncio
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -235,10 +236,68 @@ async def generate_outline_preview(
     }
 
     # Run only the outline node — no images, no PPT
-    state = generate_outline_node(initial_state)
+    # Use asyncio.to_thread to run blocking function without blocking event loop
+    state = await asyncio.to_thread(generate_outline_node, initial_state)
 
     content = state.get("content", {})
     slides = content.get("slides", [])
+
+    # If the outline node stored raw text, try to extract slides from it
+    if not slides and content.get("status") == "raw" and content.get("outline"):
+        import re as _re
+        import json as _j
+        raw = content["outline"]
+
+        def _clean(t):
+            return _re.sub(r',\s*([\]\}])', r'\1', t)
+
+        def _extract_obj(t):
+            s = t.find('{')
+            if s == -1: return t
+            depth = 0
+            for i in range(s, len(t)):
+                if t[i] == '{': depth += 1
+                elif t[i] == '}':
+                    depth -= 1
+                    if depth == 0: return t[s:i+1]
+            return t[s:]
+
+        # Try JSON extraction first
+        for candidate in (raw, _clean(raw), _extract_obj(raw), _clean(_extract_obj(raw))):
+            try:
+                parsed = _j.loads(candidate)
+                if "slides" in parsed:
+                    slides = parsed["slides"]
+                    content = parsed
+                    break
+            except Exception:
+                pass
+
+        # Fall back to markdown parsing — extract slide titles from **Slide N:** patterns
+        if not slides:
+            extracted = []
+            # Match patterns like "**Slide 1: Title**" or "* Title: ..." or "### Title"
+            title_patterns = [
+                _re.compile(r'\*\*Slide\s*\d+[:\.]?\s*(.+?)\*\*', _re.IGNORECASE),
+                _re.compile(r'^#+\s*Slide\s*\d+[:\.]?\s*(.+)$', _re.MULTILINE),
+                _re.compile(r'^\*\s*Title[:\s]+(.+)$', _re.MULTILINE),
+                _re.compile(r'^(?:Slide\s*)?\d+[\.:\)]\s*\*{0,2}(.+?)\*{0,2}$', _re.MULTILINE),
+            ]
+            for pattern in title_patterns:
+                matches = pattern.findall(raw)
+                if len(matches) >= 2:
+                    for idx, title in enumerate(matches[:slide_count]):
+                        extracted.append({
+                            "slide_number": idx + 1,
+                            "title": title.strip().strip('*').strip(),
+                            "description": "",
+                            "key_points": []
+                        })
+                    break
+
+            if extracted:
+                slides = extracted
+                content = {"title": topic, "slides": slides}
 
     if not slides:
         raise HTTPException(status_code=500, detail="Failed to generate outline. Please try again.")
